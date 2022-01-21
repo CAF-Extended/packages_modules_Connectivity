@@ -2319,7 +2319,9 @@ public class ConnectivityService extends IConnectivityManager.Stub
         final ArrayList<NetworkStateSnapshot> result = new ArrayList<>();
         for (Network network : getAllNetworks()) {
             final NetworkAgentInfo nai = getNetworkAgentInfoForNetwork(network);
-            if (nai != null && nai.everConnected) {
+            // TODO: Consider include SUSPENDED networks, which should be considered as
+            //  temporary shortage of connectivity of a connected network.
+            if (nai != null && nai.networkInfo.isConnected()) {
                 // TODO (b/73321673) : NetworkStateSnapshot contains a copy of the
                 // NetworkCapabilities, which may contain UIDs of apps to which the
                 // network applies. Should the UIDs be cleared so as not to leak or
@@ -3838,7 +3840,9 @@ public class ConnectivityService extends IConnectivityManager.Stub
 
     private void handleNetworkAgentDisconnected(Message msg) {
         NetworkAgentInfo nai = (NetworkAgentInfo) msg.obj;
-        disconnectAndDestroyNetwork(nai);
+        if (mNetworkAgentInfos.contains(nai)) {
+            disconnectAndDestroyNetwork(nai);
+        }
     }
 
     // Destroys a network, remove references to it from the internal state managed by
@@ -3846,9 +3850,6 @@ public class ConnectivityService extends IConnectivityManager.Stub
     // Must be called on the Handler thread.
     private void disconnectAndDestroyNetwork(NetworkAgentInfo nai) {
         ensureRunningOnConnectivityServiceThread();
-
-        if (!mNetworkAgentInfos.contains(nai)) return;
-
         if (DBG) {
             log(nai.toShortString() + " disconnected, was satisfying " + nai.numNetworkRequests());
         }
@@ -3934,7 +3935,7 @@ public class ConnectivityService extends IConnectivityManager.Stub
         try {
             mNetd.networkSetPermissionForNetwork(nai.network.netId, INetd.PERMISSION_SYSTEM);
         } catch (RemoteException e) {
-            Log.d(TAG, "Error marking network restricted during teardown: ", e);
+            Log.d(TAG, "Error marking network restricted during teardown: " + e);
         }
         mHandler.postDelayed(() -> destroyNetwork(nai), nai.teardownDelayMs);
     }
@@ -6858,15 +6859,7 @@ public class ConnectivityService extends IConnectivityManager.Stub
 
     private void handleUnregisterNetworkOffer(@NonNull final NetworkOfferInfo noi) {
         ensureRunningOnConnectivityServiceThread();
-
-        if (DBG) {
-            log("unregister offer from providerId " + noi.offer.providerId + " : " + noi.offer);
-        }
-
-        // If the provider removes the offer and dies immediately afterwards this
-        // function may be called twice in a row, but the array will no longer contain
-        // the offer.
-        if (!mNetworkOffers.remove(noi)) return;
+        mNetworkOffers.remove(noi);
         noi.offer.callback.asBinder().unlinkToDeath(noi, 0 /* flags */);
     }
 
